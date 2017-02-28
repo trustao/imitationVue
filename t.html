@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style type="text/css">
+
+    </style>
+</head>
+<body>
+    <div id="app">{{msg}}</div>
+<script type="text/javascript">
+    function MVVM(option) {
+        this.$option  = option
+        var data = this._data = this.$option.data  //有什么用？
+        var me  = this
+        this.defineData(this._data)
+        observer(data)
+        compile(this.$option.el,data)
+
+/*
+        1、将数据代理到实例上。
+                     通过属性描述符定义
+        2、 获取el >  遍历所有节点  >  置入文档碎片中  >  遍历文档碎片  >  解析指令  >  执行指令操作
+        3、  将文档碎片加入到el中完成渲染
+
+        this的转绑（闭包）、数据容错（是否存在、类型检查）、递归深度解析（数据对象、节点）、访问描述符、正则判断
+   */
+    }
+   //===============================================数据代理
+    MVVM.prototype.defineData = function (data) {
+        const me = this
+        Object.keys(data).forEach(function (key) {
+            Object.defineProperty(me,key,{
+                configurable:false,
+                enumerable:true,
+                get(){
+                    return me._data[key]
+                },
+                set(newVal){
+                    me._data[key] = newVal
+                }
+            })
+        })
+    }
+    //==============================================Observer数据劫持
+    function observer(data) {
+        return new Observer(data)
+    }
+   function Observer(data) {
+       this.data = data
+       this.seekData(this.data)
+   }
+   Observer.prototype= {
+       seekData() {
+           const me = this
+           Object.keys(this.data).forEach(key => {
+               const val = this.data[key]
+               if (val instanceof Object) {
+                   observer(val)
+               }
+               me.defineProp(this.data, key, val)
+           })
+       },
+       defineProp (data, key, val) {
+           const deper = new Deper()
+           Object.defineProperty(data, key, {
+               configurable: false,
+               enumerable: true,
+               get(){
+                   if (Deper.target) {
+                       deper.addWatcher(Deper.target)
+                   }
+                   return val
+               },
+               set(newVal){
+                   val = newVal
+                   deper.notify()
+               }
+           })
+       }
+   }
+    //==============================================Deper 订阅者
+    var count = 0
+    function Deper() {
+        this.id = count++
+        this.watchers = []
+    }
+    Deper.target = null
+    Deper.prototype= {
+        addWatcher  (watcher) {
+            this.watchers.push(watcher)
+            console.log('dep', this)
+            watcher.addDeper(this)
+        },
+        notify  () {
+            this.watchers.forEach(watcher => {
+                watcher.updateDom()
+            })
+        }
+    }
+
+    //==============================================Compile解析指令
+    function compile(el,data) {
+        return new Compile(el,data)
+    }
+    function Compile(el,data) {
+        this.fragment = document.createDocumentFragment()
+        this.el = this.nodeTypeFlag(el)==='Element'?el:document.querySelector(el)
+        this.data = data
+        this.fragment.appendChild(this.el.firstChild)
+        this.compileFragment(this.fragment)
+
+    }
+    Compile.prototype= {
+        compileFragment  (fragment) {
+            for(let node of fragment.childNodes){
+                console.log(node)
+                this.instructCompile(node)
+            }
+
+        },
+        nodeTypeFlag (node) {
+            if (!node.nodeType) {
+                return false
+            }
+            switch (node.nodeType) {
+                case 1:
+                    return 'Element'
+                    break
+                case 2:
+                    return 'Attr'
+                    break
+                case 3:
+                    return 'Text'
+                    break
+                default :
+                    return 'else'
+                    break
+            }
+        },
+        instructCompile (node) {
+            const me = this
+            if (this.nodeTypeFlag(node) === 'Text') {
+                const reg = /\{\{(.*?)\}\}/g
+                node.textContent.replace(reg, function ($1, $2) {
+                    const val = me.data[$2]
+                    me.updateTextFn(me, node, val)
+                    new Watcher(me, node, $2, me.updateTextFn)
+                })
+            }
+        },
+        updateTextFn (obj, node, val) {
+            node.textContent = val
+            obj.renderDom()
+        },
+        renderDom () {
+            this.el.appendChild(this.fragment)
+        }
+    }
+    //==============================================watcher 观察者
+    function Watcher(obj,node,instruct,fn) {
+        this.node = node
+        this.obj = obj
+        this.instrct = instruct
+        this.fn = fn
+        this.depers = {}
+        this.val = this.getVal()
+
+    }
+    Watcher.prototype= {
+        addDeper (deper) {
+            if (!this.depers[deper.id]) {
+                this.depers[deper.id] = deper
+            }
+        },
+        getVal () {
+            Deper.target = this
+            const val = this.obj.data[this.instrct]
+            Deper.target = null
+            return val
+        },
+        updateDom (){
+            this.fn(this.obj, this.node, this.obj.data[this.instrct])
+        }
+    }
+    //==============================================创建实例
+   const vm = new MVVM({
+        el:'#app',
+        data:{
+            msg:'test'
+        }
+    })
+    vm.msg = 'abc'
+</script>
+</body>
+</html>
